@@ -3901,6 +3901,43 @@ async def save_sessions():
     with open(SESSIONS_FILE, "w") as f:
         json.dump(sessions, f, indent=4)
 
+# --- دالة ربط كل أوامر البوت بالجلسات الجديدة ---
+def register_all_handlers(c):
+
+    @c.on(events.NewMessage(pattern=r"^\.جلساتي$"))
+    async def list_sessions(event):
+        if not sessions:
+            await event.edit("**⛔ لا توجد أي جلسات مضافة حاليًا.**")
+            return
+        msg = "**📂 قائمة الجلسات النشطة:**\n\n"
+        for i, (sname, info) in enumerate(sessions.items(), 1):
+            msg += f"**{i}.** `{sname}`\n   - **الانتهاء:** {info['expiry']}\n"
+        await event.edit(msg)
+
+    @c.on(events.NewMessage(pattern=r"^\.انهاء (\d+)$"))
+    async def end_session(event):
+        try:
+            idx = int(event.pattern_match.group(1)) - 1
+            session_list = list(sessions.keys())
+            if 0 <= idx < len(session_list):
+                session_name = session_list[idx]
+                if os.path.exists(sessions[session_name]["file"]):
+                    os.remove(sessions[session_name]["file"])
+                del sessions[session_name]
+                await save_sessions()
+                await event.edit(f"**✅ تم إنهاء الجلسة بنجاح:** `{session_name}`")
+            else:
+                await event.edit("**⛔ رقم الجلسة غير صحيح.**")
+        except Exception as e:
+            await event.edit(f"**⛔ حدث خطأ:**\n`{str(e)}`")
+
+    # هنا تضيف أي أوامر ثانية من البوت بنفس الطريقة
+    # مثال:
+    # @c.on(events.NewMessage(pattern=r"^\.فحص$"))
+    # async def check_session(event):
+    #     await event.reply("✅ الجلسة شغالة")
+
+# --- أمر التنصيب ---
 @client.on(events.NewMessage(from_users='me', pattern=r"^\.تنصيب(?: (.*))?$"))
 async def install_session(event):
     replied_message = await event.get_reply_message()
@@ -3960,19 +3997,28 @@ async def install_session(event):
         await event.edit("**⛔ خطأ في صيغة الأمر. استخدم:\n`.تنصيب`\n`.تنصيب تجريبي`\n`.تنصيب 5`**")
         return 
 
-    # 🔑 تشغيل الجلسة الجديدة مباشرة
+    # 🔑 تشغيل الجلسة الجديدة مباشرة وتخليها تظل شغالة بالخلفية
     try:
         session = SQLiteSession(download_path)
         new_client = TelegramClient(session, api_id=1, api_hash="1")
         await new_client.start()
         running_clients.append(new_client)
+
+        # ربط كل أوامر البوت بالجلسة الجديدة
+        register_all_handlers(new_client)
+
+        async def run_extra_client(c):
+            await c.run_until_disconnected()
+        client.loop.create_task(run_extra_client(new_client))
+
+        me_new = await new_client.get_me()
+        print(f"✅ جلسة {session_name_to_save} اشتغلت ({me_new.id})")
     except Exception as e:
         await event.edit(f"**⛔ فشل تشغيل الجلسة:** `{str(e)}`")
         return
 
     await save_sessions()
     await event.edit(response_message)
-
 
 
 import asyncio
