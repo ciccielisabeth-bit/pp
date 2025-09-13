@@ -3880,18 +3880,13 @@ async def show_m60_commands(event):
 **"""
     await event.edit(m60_text)
 
+from telethon.sessions import SQLiteSession
 from telethon import TelegramClient, events
-from telethon.tl.functions.users import GetFullUserRequest
-import asyncio, os, json, datetime, re
+import os, datetime, json
 
-
-# اسم ملف الجلسة الرئيسي للبوت
-
-
-# مكان حفظ بيانات الجلسات المنصبة
 SESSIONS_FILE = "sessions.json"
 sessions = {}
-active_clients = {}  # نخزن الكلاينتات المفعلة هنا
+running_clients = []
 
 def load_sessions():
     global sessions
@@ -3962,54 +3957,21 @@ async def install_session(event):
         del sessions[session_name_to_save]
         os.remove(download_path)
         await save_sessions()
-        await event.edit("**⛔ خطأ في صيغة الأمر. استخدم:\n`.تنصيب`\n`.تنصيب تجريبي`\n`.تنصيب 5`")
-        return
+        await event.edit("**⛔ خطأ في صيغة الأمر. استخدم:\n`.تنصيب`\n`.تنصيب تجريبي`\n`.تنصيب 5`**")
+        return 
 
-    # ✅ تشغيل الجلسة مباشرة من ملف الـ session
+    # 🔑 تشغيل الجلسة الجديدة مباشرة
     try:
         session = SQLiteSession(download_path)
         new_client = TelegramClient(session, api_id=1, api_hash="1")
         await new_client.start()
-        active_clients[session_name_to_save] = new_client
-        sessions[session_name_to_save]["active"] = True
-        response_message += "\n**🔌 الجلسة تم تشغيلها وتسجيل دخولها بنجاح.**"
+        running_clients.append(new_client)
     except Exception as e:
-        sessions[session_name_to_save]["active"] = False
-        response_message += f"\n**⚠️ فشل تشغيل الجلسة:** `{str(e)}`"
+        await event.edit(f"**⛔ فشل تشغيل الجلسة:** `{str(e)}`")
+        return
 
     await save_sessions()
     await event.edit(response_message)
-
-@client.on(events.NewMessage(from_users='me', pattern=r"^\.جلساتي$"))
-async def list_sessions(event):
-    if not sessions:
-        await event.edit("**⛔ لا توجد أي جلسات مضافة حاليًا.**")
-        return
-    msg = "**📂 قائمة الجلسات النشطة:**\n\n"
-    for i, (sname, info) in enumerate(sessions.items(), 1):
-        status = "✅ شغالة" if info.get("active") else "❌ متوقفة"
-        msg += f"**{i}.** `{sname}`\n   - **الانتهاء:** {info['expiry']}\n   - **الحالة:** {status}\n"
-    await event.edit(msg)
-
-@client.on(events.NewMessage(from_users='me', pattern=r"^\.انهاء (\d+)$"))
-async def end_session(event):
-    try:
-        idx = int(event.pattern_match.group(1)) - 1
-        session_list = list(sessions.keys())
-        if 0 <= idx < len(session_list):
-            session_name = session_list[idx]
-            if os.path.exists(sessions[session_name]["file"]):
-                os.remove(sessions[session_name]["file"])
-            if session_name in active_clients:
-                await active_clients[session_name].disconnect()
-                del active_clients[session_name]
-            del sessions[session_name]
-            await save_sessions()
-            await event.edit(f"**✅ تم إنهاء الجلسة بنجاح:** `{session_name}`")
-        else:
-            await event.edit("**⛔ رقم الجلسة غير صحيح.**")
-    except Exception as e:
-        await event.edit(f"**⛔ حدث خطأ:**\n`{str(e)}`")
 
 
 
